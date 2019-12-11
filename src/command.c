@@ -53,6 +53,7 @@ static bool cmd_morse(target *t, int argc, char **argv);
 static bool cmd_halt_timeout(target *t, int argc, const char **argv);
 static bool cmd_connect_srst(target *t, int argc, const char **argv);
 static bool cmd_hard_srst(target *t, int argc, const char **argv);
+bool cmd_setbaud(target *t, int argc, const char **argv);
 #ifdef PLATFORM_HAS_POWER_SWITCH
 static bool cmd_target_power(target *t, int argc, const char **argv);
 #endif
@@ -73,6 +74,9 @@ const struct command_s cmd_list[] = {
 	{"halt_timeout", (cmd_handler)cmd_halt_timeout, "Timeout (ms) to wait until Cortex-M is halted: (Default 2000)" },
 	{"connect_srst", (cmd_handler)cmd_connect_srst, "Configure connect under SRST: (enable|disable)" },
 	{"hard_srst", (cmd_handler)cmd_hard_srst, "Force a pulse on the hard SRST line - disconnects target" },
+#if PROBE_HOST==esp8266
+	{"setbaud", (cmd_handler)cmd_setbaud, "Set UART baudrate" },
+#endif
 #ifdef PLATFORM_HAS_POWER_SWITCH
 	{"tpwr", (cmd_handler)cmd_target_power, "Supplies power to the target: (enable|disable)"},
 #endif

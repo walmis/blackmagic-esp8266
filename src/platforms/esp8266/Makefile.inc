@@ -15,6 +15,7 @@ CFLAGS += -Wno-unused-variable
 CFLAGS += -Wno-empty-body
 CFLAGS += -Wno-error
 CFLAGS += -DconfigENABLE_BACKWARD_COMPATIBILITY=1
+CFLAGS += -DconfigUSE_COUNTING_SEMAPHORES=1
 
 # Requires hack from https://groups.google.com/forum/#!searchin/esp-open-rtos/hostname/esp-open-rtos/bptnLZDxaEY/bBsTYf02AAAJ
 CFLAGS +=  -DLWIP_NETIF_HOSTNAME=1 -DESP8266_HOSTNAME=\"BLACKMAGIC01\"

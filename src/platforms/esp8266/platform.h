@@ -47,14 +47,25 @@ void platform_buffer_flush(void);
 #include <esp8266.h>
 
 #define TMS_SET_MODE() do { } while (0)
+#define USE_GPIO2_UART
 
+#ifdef USE_GPIO2_UART
+#define TMS_PIN 1
+#define TCK_PIN 0 //
+#else
 // no-connects on ESP-01: 12,13,14,15
 #define TMS_PIN (0) 
-#define TDI_PIN (13) // "
-#define TDO_PIN (14) // "
-#define TCK_PIN (2) // "
+#define TCK_PIN (2) //
 // 2 is GPIO2, broken out
 // 3 is RXD
+#endif
+
+#define TDI_PIN (13) // "
+#define TDO_PIN (14) // "
+
+#if defined(USE_GPIO2_UART) && (TMS_PIN==2 || TDI_PIN==2 || TDO_PIN==2 || TCK_PIN==2)
+#error "GPIO2 is used for UART TX"
+#endif
 
 #define SWDIO_PIN TMS_PIN
 #define SWCLK_PIN TCK_PIN

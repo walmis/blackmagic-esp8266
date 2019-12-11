@@ -9,10 +9,13 @@
 #include <esp8266.h>
 #include <queue.h>
 #include "uart.h"
+#include <espressif/esp8266/uart_register.h>
 
 
 #define UART0 0
-#define UART0_RX_SIZE  (1024)
+
+
+SemaphoreHandle_t sem_rx_poll;
 
 static xQueueHandle rxqueue;
 static uint32_t overruns;
@@ -62,6 +65,14 @@ IRAM void uart0_rx_handler(void* arg)
     
     uint32_t count = uart0_num_char();
     if (count) {
+        if(sem_rx_poll) {
+            long int xHigherPriorityTaskWoken;
+            xSemaphoreGiveFromISR(sem_rx_poll, &xHigherPriorityTaskWoken);
+            if(xHigherPriorityTaskWoken) {
+                portYIELD();
+            }
+          }
+        
         for(int i = 0 ; i < count; i++) {
         	uart0_rxqueue_push(uart_get());
         }
@@ -121,6 +132,26 @@ void uart0_rx_init(void)
 
 }
 
+int
+uart_tx_one_char(uint8_t uart, uint8_t c)
+{
+  //Wait until there is room in the FIFO
+  while (((UART(uart).STATUS>>UART_TXFIFO_CNT_S)&UART_TXFIFO_CNT)>=100) 
+      taskYIELD();
+  //Send the character
+  UART(uart).FIFO = c;
+  return 0;
+}
+
+int uart_add_rx_poll(SemaphoreHandle_t sem) {
+    sem_rx_poll = sem;
+    return 0;
+}
+
+int remove_rx_poll() {
+    sem_rx_poll = 0;
+    return 0;
+}
 
 uint32_t uart0_overruns() {
 	return overruns;
