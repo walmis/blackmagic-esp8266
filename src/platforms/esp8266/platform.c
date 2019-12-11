@@ -39,17 +39,31 @@
 #include "espressif/esp_wifi.h"
 #include "ssid_config.h"
 
-#include <dhcpserver.h>
+#include "dhcpserver/dhcpserver.h"
 #include "uart.h"
+
+#   include "lwip/err.h"
+#   include "lwip/sockets.h"
+#   include "lwip/sys.h"
+#   include "lwip/netdb.h"
+#   include "lwip/dns.h"
+#include "lwip/api.h"
 
 #define ACCESS_POINT_MODE
 #define AP_SSID	 "blackmagic"
 #define AP_PSK	 "helloworld"
 
+struct netconn* uart_client_sock;
+struct netconn* uart_serv_sock;
+int             uart_sockerr;
+
 void platform_init()
 {
 
-	//gpio_set_iomux_function(3, IOMUX_GPIO3_FUNC_GPIO);
+#if TMS_PIN==3 || TCK_PIN==3 || TDI_PIN==3 || TDO_PIN==3
+	gpio_set_iomux_function(3, IOMUX_GPIO3_FUNC_GPIO);
+#endif
+
 	gpio_set_iomux_function(2, IOMUX_GPIO2_FUNC_GPIO);
     gpio_set_iomux_function(0, IOMUX_GPIO0_FUNC_GPIO);
 
@@ -81,7 +95,7 @@ const char *platform_target_voltage(void)
 
 uint32_t platform_time_ms(void)
 {
-	return xTaskGetTickCount() / portTICK_PERIOD_MS;
+	return xTaskGetTickCount() * portTICK_PERIOD_MS;
 }
 
 #define vTaskDelayMs(ms)	vTaskDelay((ms)/portTICK_PERIOD_MS)
@@ -119,17 +133,82 @@ void main_task(void *parameters)
 	/* Should never get here */
 }
 
+
+void netconn_cb(struct netconn * nc, enum netconn_evt evt, u16_t len) {
+  //printf("evt %d len %d\n", evt, len);
+
+  if(evt == NETCONN_EVT_RCVPLUS) {
+    if(len == 0) {
+      uart_sockerr = 1;
+      return;
+    }
+    struct netbuf* nb = 0;
+    netconn_recv(nc, &nb);
+
+    void* data = 0;
+    u16_t len = 0;
+    netbuf_data(nb, &data, &len);
+
+    fwrite(data, len, 1, stdout);
+
+    netbuf_delete(nb);
+  }
+  else if(evt == NETCONN_EVT_ERROR) {
+    DEBUG("NETCONN_EVT_ERROR\n");
+    uart_sockerr = 1;
+  }
+}
+
 void uart_rx_task(void *parameters) 
 {
-  static uint8_t buf[64];
-  uint8_t ptr;
-  
+  static uint8_t buf[256];
+  int bufpos = 0;
+
+	struct netconn* nc;
+  uart_serv_sock = netconn_new(NETCONN_TCP);
+
+  netconn_bind(uart_serv_sock, IP_ADDR_ANY, 23);
+  netconn_listen(uart_serv_sock);
+
+  int opt;
+  int ret;
+ 
+  DEBUG("Listening on :23\n"); 
+
   while(1) {
     int c;
-    if((c = uart0_getchar()) >= 0) 
+    if(uart_sockerr) {
+      uart_client_sock->callback = NULL;
+      netconn_delete(uart_client_sock);
+      uart_client_sock = 0;
+      DEBUG("Finish telnet connection\n");
+    }
+
+    if(!uart_client_sock) {
+      netconn_accept(uart_serv_sock, &uart_client_sock);
+      uart_sockerr = 0;
+      if(uart_client_sock) {
+        DEBUG("New telnet connection ovr:%d\n", uart0_overruns());
+        //xTaskCreate(&uart_tx_task, "uart tx", 512, (void*)uart_sockfd, 2, NULL);
+        uart_client_sock->callback = netconn_cb;
+      }
+    }
+    int ch = uart0_getchar();
+
+    if(ch >= 0) 
     {
-        buf[ptr++] = c;
-        ptr &= sizeof(buf)-1;
+      buf[bufpos++] = ch;
+        
+      int rxcount = uart0_rxcount();
+      while(rxcount--) {
+        if(bufpos == sizeof(buf)) break;
+        buf[bufpos++] = uart0_getchar();
+      }
+      //DEBUG("uart rx:%d\n", bufpos);
+      if(uart_client_sock) {
+        netconn_write(uart_client_sock, buf, bufpos, uart0_rxcount() > 0 ? NETCONN_MORE : 0);
+        bufpos = 0;
+      }
     }
   
   }
@@ -139,6 +218,9 @@ void user_init(void)
 {
 	uart_set_baud(0, 460800);
 	printf("SDK version:%s\n", sdk_system_get_sdk_version());
+
+  sdk_system_update_cpu_freq(160);
+  sdk_system
 
 #ifndef ACCESS_POINT_MODE
 	struct sdk_station_config config = {
@@ -152,9 +234,10 @@ void user_init(void)
 
 	/* required to call wifi_set_opmode before station_set_config */
 	sdk_wifi_set_opmode(SOFTAP_MODE);
+  sdk_system_set_os_print(0);
 
 	struct ip_info ap_ip;
-	IP4_ADDR(&ap_ip.ip, 172, 16, 0, 1);
+	IP4_ADDR(&ap_ip.ip, 192, 168, 4, 1);
 	IP4_ADDR(&ap_ip.gw, 0, 0, 0, 0);
 	IP4_ADDR(&ap_ip.netmask, 255, 255, 0, 0);
 	sdk_wifi_set_ip_info(1, &ap_ip);
@@ -172,12 +255,12 @@ void user_init(void)
 	sdk_wifi_softap_set_config(&ap_config);
 
 	ip_addr_t first_client_ip;
-	IP4_ADDR(&first_client_ip, 172, 16, 0, 2);
+	IP4_ADDR(&first_client_ip, 192, 168, 4, 2);
 	dhcpserver_start(&first_client_ip, 4);
 	
 	uart0_rx_init();
 
 #endif
 	xTaskCreate(&main_task, "main", 4096, NULL, 2, NULL);
-	xTaskCreate(&uart_rx_task, "uart", 2048, NULL, 2, NULL);
+	xTaskCreate(&uart_rx_task, "uart rx", 512, NULL, 2, NULL);
 }

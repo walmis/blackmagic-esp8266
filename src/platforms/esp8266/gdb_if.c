@@ -24,22 +24,13 @@
  */
 #include <stdio.h>
 
-#if defined LWIP
+
 #   include "lwip/err.h"
 #   include "lwip/sockets.h"
 #   include "lwip/sys.h"
 #   include "lwip/netdb.h"
 #   include "lwip/dns.h"
-#elif defined WIN32
-#   include <winsock2.h>
-#   include <windows.h>
-#   include <ws2tcpip.h>
-#else
-#   include <sys/socket.h>
-#   include <netinet/in.h>
-#   include <netinet/tcp.h>
-#   include <sys/select.h>
-#endif
+
 
 #include <assert.h>
 
@@ -92,6 +83,7 @@ unsigned char gdb_if_getchar(void)
 		}
 		i = recv(gdb_if_conn, (void*)&ret, 1, 0);
 		if(i <= 0) {
+		    lwip_close(gdb_if_conn);
 			gdb_if_conn = -1;
 			DEBUG("Dropped broken connection\n");
 			/* Return '+' in case we were waiting for an ACK */

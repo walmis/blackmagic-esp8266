@@ -1,3 +1,7 @@
 [submodule "libopencm3"]
 	path = libopencm3
 	url = https://github.com/libopencm3/libopencm3.git
+	
+[submodule "esp-open-rtos"] 
+  path = src/platforms/esp8266/esp-open-rtos
+  url = https://github.com/SuperHouse/esp-open-rtos.git

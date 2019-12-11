@@ -12,8 +12,7 @@
 
 
 #define UART0 0
-#define UART0_RX_SIZE  (128)
-
+#define UART0_RX_SIZE  (1024)
 
 static xQueueHandle rxqueue;
 static uint32_t overruns;
@@ -56,33 +55,29 @@ IRAM void uart0_rx_handler(void* arg)
 //    printf(" [%08x (%d)]\n", READ_PERI_REG(UART_INT_ST(UART0)), READ_PERI_REG(UART_STATUS(UART0)) & (UART_RXFIFO_CNT << UART_RXFIFO_CNT_S));
     if (UART(UART0).INT_STATUS & UART_INT_STATUS_RXFIFO_FULL) {
         UART(UART0).INT_CLEAR = UART_INT_CLEAR_RXFIFO_FULL;
-        if (UART(UART0).STATUS & (UART_STATUS_RXFIFO_COUNT_M << UART_STATUS_RXFIFO_COUNT_S)) {
-        	uint32_t count = uart0_num_char();
-          // uint32_t t = micros();
-            //t -= count*5; //~5us per byte
-
-            uint8_t tmp[count];
-
-            for(int i = 0 ; i < count; i++) {
-            	uart0_rxqueue_push(uart_get());
-            }
-
-            _xt_clear_ints(1<<INUM_UART);
-
-
-        }
-    } else {
-        //printf("Error: unexpected uart irq, INT_STATUS 0x%02x\n", UART(UART0).INT_STATUS);
     }
+    if(UART(UART0).INT_STATUS & UART_INT_STATUS_RXFIFO_TIMEOUT) {
+        UART(UART0).INT_CLEAR = UART_INT_STATUS_RXFIFO_TIMEOUT;
+    }
+    
+    uint32_t count = uart0_num_char();
+    if (count) {
+        for(int i = 0 ; i < count; i++) {
+        	uart0_rxqueue_push(uart_get());
+        }
+
+    } 
+    
+    _xt_clear_ints(1<<INUM_UART);
 }
 
 
-int IRAM uart0_getchar() {
+int uart0_getchar() {
 	uint8_t c = 0;
-	int ret;
-	ret = xQueueReceive(rxqueue, (void*)&c, 1000);
+	int ret = xQueueReceive(rxqueue, (void*)&c, 1000/portTICK_PERIOD_MS);
 	return ret == pdFALSE ? -1 : c;
 }
+
 void uart0_rxqueue_reset() {
 	xQueueReset(rxqueue);
 }
@@ -99,7 +94,7 @@ void uart0_ovr_reset(void) {
 }
 void uart0_rx_init(void)
 {
-    int trig_lvl = 80;
+    int trig_lvl = 20;
     uint8_t timeout = 20;
     //uart0_sem = xSemaphoreCreateCounting(UART0_RX_SIZE, 0);
 
@@ -122,7 +117,7 @@ void uart0_rx_init(void)
     UART(UART0).INT_CLEAR = 0x1ff;
 
     // enable rx_interrupt
-    UART(UART0).INT_ENABLE = UART_INT_ENABLE_RXFIFO_FULL;
+    UART(UART0).INT_ENABLE = UART_INT_ENABLE_RXFIFO_FULL | UART_INT_ENABLE_RXFIFO_TIMEOUT;
 
 }
 

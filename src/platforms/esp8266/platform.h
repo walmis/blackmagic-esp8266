@@ -34,7 +34,11 @@ void platform_buffer_flush(void);
 #define SET_RUN_STATE(state)
 #define SET_IDLE_STATE(state)
 #define SET_ERROR_STATE(state)
-#define DEBUG(x, ...) do { ; } while (0)
+
+//#define DEBUG(x, ...) do { ; } while (0)
+#define ENABLE_DEBUG
+#define DEBUG(x, ...) do { printf(x, ##__VA_ARGS__); } while (0)
+#define DEBUG_GDBPACKET
 
 #include "timing.h"
 
@@ -45,10 +49,10 @@ void platform_buffer_flush(void);
 #define TMS_SET_MODE() do { } while (0)
 
 // no-connects on ESP-01: 12,13,14,15
-#define TMS_PIN (2) 
+#define TMS_PIN (0) 
 #define TDI_PIN (13) // "
 #define TDO_PIN (14) // "
-#define TCK_PIN (0) // "
+#define TCK_PIN (2) // "
 // 2 is GPIO2, broken out
 // 3 is RXD
 
