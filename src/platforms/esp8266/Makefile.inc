@@ -5,6 +5,7 @@ ESPBAUD = 230400
 FLASH_SPEED=80
 OWN_HL=1
 PROGRAM=blackmagic
+LIBESPHTTPD_HTML_DIR=platforms/esp8266/html
 
 CFLAGS += -DLWIP -DNO_LIBOPENCM3
 CFLAGS += -Wno-unused-parameter
@@ -16,6 +17,8 @@ CFLAGS += -Wno-empty-body
 CFLAGS += -Wno-error
 CFLAGS += -DconfigENABLE_BACKWARD_COMPATIBILITY=1
 CFLAGS += -DconfigUSE_COUNTING_SEMAPHORES=1
+#CFLAGS += -DLWIP_HTTPD_CUSTOM_FILES=1
+
 
 # Requires hack from https://groups.google.com/forum/#!searchin/esp-open-rtos/hostname/esp-open-rtos/bptnLZDxaEY/bBsTYf02AAAJ
 CFLAGS +=  -DLWIP_NETIF_HOSTNAME=1 -DESP8266_HOSTNAME=\"BLACKMAGIC01\"
@@ -30,7 +33,7 @@ SRC += remote.c
 PROGRAM_SRC_FILES = $(foreach sdir, . $(VPATH), $(foreach f, $(SRC), $(wildcard $(sdir)/$(f))))
 
 # use the Berkeley sockets interface
-PROGRAM_SRC_FILES += platforms/esp8266/gdb_if.c platforms/esp8266/uart.c platforms/esp8266/dhcpserver/dhcpserver.c
+PROGRAM_SRC_FILES += platforms/esp8266/gdb_if.c platforms/esp8266/uart.c platforms/esp8266/dhcpserver/dhcpserver.c platforms/esp8266/http.c
 
 # ... and the bitbang JTAG interface
 #PROGRAM_SRC_FILES += platforms/stm32/jtagtap.c
@@ -39,6 +42,8 @@ BUILD_DIR = platforms/esp8266/build/
 FIRMWARE_DIR = platforms/esp8266/firmware/
 
 #EXTRA_COMPONENTS=extras/dhcpserver
+
+EXTRA_COMPONENTS=extras/rboot-ota extras/libesphttpd
 
 all: include/version.h
 
