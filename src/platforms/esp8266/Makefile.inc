@@ -1,13 +1,12 @@
 # -*-Makefile-*-
 RTOS_PATH=platforms/esp8266/esp-open-rtos
 ESPPORT = /dev/ttyUSB0
-ESPBAUD = 230400
+ESPBAUD = 921600
 FLASH_SPEED=80
-OWN_HL=1
 PROGRAM=blackmagic
 LIBESPHTTPD_HTML_DIR=platforms/esp8266/html
 
-CFLAGS += -DLWIP -DNO_LIBOPENCM3
+CFLAGS += -DLWIP -DNO_LIBOPENCM3 -DFREERTOS
 CFLAGS += -Wno-unused-parameter
 CFLAGS += -Wno-sign-compare
 CFLAGS += -Wno-old-style-declaration
@@ -18,6 +17,7 @@ CFLAGS += -Wno-error
 CFLAGS += -DconfigENABLE_BACKWARD_COMPATIBILITY=1
 CFLAGS += -DconfigUSE_COUNTING_SEMAPHORES=1
 #CFLAGS += -DLWIP_HTTPD_CUSTOM_FILES=1
+
 
 
 # Requires hack from https://groups.google.com/forum/#!searchin/esp-open-rtos/hostname/esp-open-rtos/bptnLZDxaEY/bBsTYf02AAAJ

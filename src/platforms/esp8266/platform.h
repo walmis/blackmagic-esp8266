@@ -35,11 +35,10 @@ void platform_buffer_flush(void);
 #define SET_IDLE_STATE(state)
 #define SET_ERROR_STATE(state)
 
-//#define ENABLE_DEBUG
+#define ENABLE_DEBUG
+//#define USE_GPIO2_UART
 
 #ifdef ENABLE_DEBUG
-#define USE_GPIO2_UART
-
 #define DEBUG(x, ...) do { printf(x, ##__VA_ARGS__); } while (0)
 //#define DEBUG_GDBPACKET
 #else

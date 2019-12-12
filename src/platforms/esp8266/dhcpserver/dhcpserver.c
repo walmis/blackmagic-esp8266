@@ -110,7 +110,7 @@ void dhcpserver_start(const ip4_addr_t *first_client_addr, uint8_t max_leases)
     ip4_addr_set_zero(&state->router);
     ip4_addr_set_zero(&state->dns);
 
-    xTaskCreate(dhcpserver_task, "DHCP Server", 600, NULL, 2, &dhcpserver_task_handle);
+    xTaskCreate(dhcpserver_task, "DHCP Server", 512, NULL, 2, &dhcpserver_task_handle);
 }
 
 void dhcpserver_stop(void)

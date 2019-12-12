@@ -55,9 +55,12 @@
 #define AP_SSID	 "blackmagic"
 #define AP_PSK	 "helloworld"
 
-struct netconn *uart_client_sock;
-struct netconn *uart_serv_sock;
-int uart_sockerr;
+static struct netconn *uart_client_sock;
+static struct netconn *uart_serv_sock;
+static int uart_sockerr;
+static SemaphoreHandle_t sem_poll;
+static int client_sock_pending_bytes;
+static int clients_pending;
 
 #define __IOMUX(x) IOMUX_GPIO ## x ##_FUNC_GPIO
 #define _IOMUX(x)  __IOMUX(x)
@@ -138,8 +141,21 @@ void main_task(void *parameters) {
   /* Should never get here */
 }
 
-SemaphoreHandle_t sem_poll;
-int client_sock_pending_bytes;
+
+
+void netconn_serv_cb(struct netconn *nc, enum netconn_evt evt, u16_t len) {
+  DEBUG("evt %d len %d\n", evt, len);
+
+  if (evt == NETCONN_EVT_RCVPLUS)
+  {
+    clients_pending++;
+    xSemaphoreGive(sem_poll);
+  }
+  if (evt == NETCONN_EVT_RCVMINUS)
+  {
+    clients_pending--;
+  }
+}
 
 void netconn_cb(struct netconn *nc, enum netconn_evt evt, u16_t len) {
   //printf("evt %d len %d\n", evt, len);
@@ -158,9 +174,10 @@ void netconn_cb(struct netconn *nc, enum netconn_evt evt, u16_t len) {
 
   else if (evt == NETCONN_EVT_ERROR) {
     DEBUG("NETCONN_EVT_ERROR\n");
-    xSemaphoreGive(sem_poll);
+
     uart_sockerr = 1;
     client_sock_pending_bytes = 0;
+    xSemaphoreGive(sem_poll);
   }
 }
 
@@ -172,6 +189,7 @@ void uart_rx_task(void *parameters) {
   sem_poll = xSemaphoreCreateCounting(1024, 0);
 
   uart_serv_sock = netconn_new(NETCONN_TCP);
+  uart_serv_sock->callback = netconn_serv_cb;
 
   netconn_bind(uart_serv_sock, IP_ADDR_ANY, 23);
   netconn_listen(uart_serv_sock);
@@ -185,25 +203,27 @@ void uart_rx_task(void *parameters) {
 
   while (1) {
     int c;
-    if (uart_sockerr) {
-      uart_client_sock->callback = NULL;
-      netconn_delete(uart_client_sock);
-      uart_client_sock = 0;
-      DEBUG("Finish telnet connection\n");
-    }
-
-    if (!uart_client_sock) {
-      netconn_accept(uart_serv_sock, &uart_client_sock);
-      uart_sockerr = 0;
-      client_sock_pending_bytes = 0;
-
-      if (uart_client_sock) {
-        DEBUG("New telnet connection ovr:%d\n", uart0_overruns());
-        uart_client_sock->callback = netconn_cb;
-      }
-    }
-
     if (xSemaphoreTake(sem_poll, 1000) != pdFALSE) {
+
+      if (uart_sockerr && uart_client_sock) {
+        uart_client_sock->callback = NULL;
+        netconn_delete(uart_client_sock);
+        uart_client_sock = 0;
+        uart_sockerr = 0;
+        DEBUG("Finish telnet connection\n");
+      }
+
+      if (!uart_client_sock && clients_pending) {
+        netconn_accept(uart_serv_sock, &uart_client_sock);
+        uart_sockerr = 0;
+        client_sock_pending_bytes = 0;
+
+        if (uart_client_sock) {
+          DEBUG("New telnet connection ovr:%d\n", uart0_overruns());
+          uart_client_sock->callback = netconn_cb;
+        }
+      }
+
 
       int rxcount = uart0_rxcount();
       while (rxcount--) {
@@ -212,32 +232,36 @@ void uart_rx_task(void *parameters) {
         buf[bufpos++] = uart0_getchar();
       }
       //DEBUG("uart rx:%d\n", bufpos);
-      if (uart_client_sock) {
-        if (bufpos) {
-          netconn_write(uart_client_sock, buf, bufpos, NETCONN_COPY |
-              (uart0_rxcount() > 0 ? NETCONN_MORE : 0));
-          bufpos = 0;
-        }
+      if(bufpos) {
+        http_term_broadcast_data(buf, bufpos);
 
-        if (client_sock_pending_bytes) {
-          struct netbuf *nb = 0;
-          netconn_recv(uart_client_sock, &nb);
-
-          char *data = 0;
-          u16_t len = 0;
-          netbuf_data(nb, (void*) &data, &len);
-
-          //fwrite(data, len, 1, stdout);
-          for (int i = 0; i < len; i++) {
-#ifdef USE_GPIO2_UART
-            uart_putc(1, data[i]);
-#else
-            uart_putc(0, data[i]);
-#endif
+        if (uart_client_sock) {
+          if (bufpos) {
+            netconn_write(uart_client_sock, buf, bufpos, NETCONN_COPY |
+                (uart0_rxcount() > 0 ? NETCONN_MORE : 0));
           }
+        } // if (uart_client_sock)
+        bufpos = 0;
+      } //if(bufpos)
 
-          netbuf_delete(nb);
+      if (uart_client_sock && client_sock_pending_bytes) {
+        struct netbuf *nb = 0;
+        netconn_recv(uart_client_sock, &nb);
+
+        char *data = 0;
+        u16_t len = 0;
+        netbuf_data(nb, (void*) &data, &len);
+
+        //fwrite(data, len, 1, stdout);
+        for (int i = 0; i < len; i++) {
+#ifdef USE_GPIO2_UART
+          uart_putc(1, data[i]);
+#else
+          uart_putc(0, data[i]);
+#endif
         }
+
+        netbuf_delete(nb);
       }
 
     }
@@ -342,7 +366,17 @@ void user_init(void) {
 
   uart0_rx_init();
 
+  httpd_start();
+
 #endif
-  xTaskCreate(&main_task, "main", 4096, NULL, 2, NULL);
+  xTaskCreate(&main_task, "main", 2560, NULL, 2, NULL);
   xTaskCreate(&uart_rx_task, "uart rx", 512, NULL, 2, NULL);
 }
+
+#ifndef ENABLE_DEBUG
+__attribute((used))
+int ets_printf(const char *__restrict c, ...) { return 0; }
+
+__attribute((used))
+int printf(const char *__restrict c, ...) { return 0; }
+#endif
