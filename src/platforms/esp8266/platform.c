@@ -31,6 +31,7 @@
 #include <assert.h>
 #include <sys/time.h>
 #include <sys/unistd.h>
+#include <esplibs/libphy.h>
 
 #include "esp/uart.h"
 
@@ -41,6 +42,7 @@
 
 #include "dhcpserver/dhcpserver.h"
 #include "uart.h"
+#include <sysparam.h>
 
 #   include "lwip/err.h"
 #   include "lwip/sockets.h"
@@ -53,20 +55,14 @@
 #define AP_SSID	 "blackmagic"
 #define AP_PSK	 "helloworld"
 
-struct netconn* uart_client_sock;
-struct netconn* uart_serv_sock;
+struct netconn *uart_client_sock;
+struct netconn *uart_serv_sock;
 int uart_sockerr;
 
-#define PASTER(x) IOMUX_GPIO ## x ##_FUNC_GPIO
-#define EVALUATOR(x)  PASTER(x)
-#define _IOMUX(fun) EVALUATOR(fun)
-
+#define __IOMUX(x) IOMUX_GPIO ## x ##_FUNC_GPIO
+#define _IOMUX(x)  __IOMUX(x)
 
 void platform_init() {
-
-#if TMS_PIN==3 || TCK_PIN==3 || TDI_PIN==3 || TDO_PIN==3
-  gpio_set_iomux_function(3, IOMUX_GPIO3_FUNC_GPIO);
-#endif
 
 #ifdef USE_GPIO2_UART
   gpio_set_iomux_function(2, IOMUX_GPIO2_FUNC_UART1_TXD);
@@ -74,8 +70,8 @@ void platform_init() {
   gpio_set_iomux_function(2, IOMUX_GPIO2_FUNC_GPIO);
 #endif
 
-  gpio_set_iomux_function(TMS_PIN, _IOMUX(TMS_PIN));
-  gpio_set_iomux_function(TCK_PIN, _IOMUX(TCK_PIN));
+  gpio_set_iomux_function(SWDIO_PIN, _IOMUX(SWDIO_PIN));
+  gpio_set_iomux_function(SWCLK_PIN, _IOMUX(SWCLK_PIN));
 
   gpio_clear(_, SWCLK_PIN);
   gpio_clear(_, SWDIO_PIN);
@@ -98,9 +94,12 @@ bool platform_srst_get_val(void) {
   return false;
 }
 
-const char *
+const char*
 platform_target_voltage(void) {
-  return "not supported";
+  static char voltage[16];
+  int vdd = sdk_readvdd33();
+  sprintf(voltage, "%dmV", vdd);
+  return voltage;
 }
 
 uint32_t platform_time_ms(void) {
@@ -142,7 +141,7 @@ void main_task(void *parameters) {
 SemaphoreHandle_t sem_poll;
 int client_sock_pending_bytes;
 
-void netconn_cb(struct netconn * nc, enum netconn_evt evt, u16_t len) {
+void netconn_cb(struct netconn *nc, enum netconn_evt evt, u16_t len) {
   //printf("evt %d len %d\n", evt, len);
 
   if (evt == NETCONN_EVT_RCVPLUS) {
@@ -168,7 +167,7 @@ void netconn_cb(struct netconn * nc, enum netconn_evt evt, u16_t len) {
 void uart_rx_task(void *parameters) {
   static uint8_t buf[256];
   int bufpos = 0;
-  struct netconn* nc;
+  struct netconn *nc;
 
   sem_poll = xSemaphoreCreateCounting(1024, 0);
 
@@ -215,23 +214,26 @@ void uart_rx_task(void *parameters) {
       //DEBUG("uart rx:%d\n", bufpos);
       if (uart_client_sock) {
         if (bufpos) {
-          netconn_write(uart_client_sock, buf, bufpos,
-              uart0_rxcount() > 0 ? NETCONN_MORE : 0);
+          netconn_write(uart_client_sock, buf, bufpos, NETCONN_COPY |
+              (uart0_rxcount() > 0 ? NETCONN_MORE : 0));
           bufpos = 0;
         }
 
         if (client_sock_pending_bytes) {
-          struct netbuf* nb = 0;
+          struct netbuf *nb = 0;
           netconn_recv(uart_client_sock, &nb);
 
-          char* data = 0;
+          char *data = 0;
           u16_t len = 0;
-          netbuf_data(nb, (void*)&data, &len);
+          netbuf_data(nb, (void*) &data, &len);
 
           //fwrite(data, len, 1, stdout);
-          for(int i = 0; i < len; i++) {
+          for (int i = 0; i < len; i++) {
+#ifdef USE_GPIO2_UART
             uart_putc(1, data[i]);
+#else
             uart_putc(0, data[i]);
+#endif
           }
 
           netbuf_delete(nb);
@@ -245,17 +247,61 @@ void uart_rx_task(void *parameters) {
 
 bool cmd_setbaud(target *t, int argc, const char **argv) {
 
+  if (argc == 1) {
+    gdb_outf("Current baud: %d\n", uart_get_baud(0));
+  }
+  if (argc == 2) {
+    int baud = atoi(argv[1]);
+    gdb_outf("Setting baud: %d\n", baud);
+
+    uart_set_baud(0, baud);
+    uart_set_baud(1, baud);
+
+    if (sysparam_set_int32("uartbaud", baud) != SYSPARAM_OK) {
+      gdb_outf("Failed to save baudrate to flash\n");
+    }
+  }
+
   return 1;
 }
 
 void user_init(void) {
-  uart_set_baud(0, 460800);
-  uart_set_baud(1, 460800);
+  int32_t baud = 460800;
+  sysparam_get_int32("uartbaud", &baud);
+
+  uart_set_baud(0, baud);
+  uart_set_baud(1, baud);
 
   printf("SDK version:%s\n", sdk_system_get_sdk_version());
 
   sdk_system_update_cpu_freq(160);
+  sdk_wifi_set_phy_mode(PHY_MODE_11N);
 
+  uint32_t base_addr, num_sectors;
+  sysparam_status_t status = sysparam_get_info(&base_addr, &num_sectors);
+
+  if (status == SYSPARAM_OK) {
+    DEBUG("[current sysparam region is at 0x%08x (%d sectors)]\n", base_addr,
+        num_sectors);
+  } else {
+    DEBUG(
+        "[NOTE: No current sysparam region (initialization problem during boot?)]\n");
+    // Default to the same place/size as the normal system initialization
+    // stuff, so if the user uses this utility to reformat it, it will put
+    // it somewhere the system will find it later
+    num_sectors = DEFAULT_SYSPARAM_SECTORS;
+    base_addr = sdk_flashchip.chip_size
+        - (5 + num_sectors) * sdk_flashchip.sector_size;
+
+    if (sysparam_create_area(base_addr, num_sectors, 1) == SYSPARAM_OK) {
+      DEBUG("Created sysparam area\n");
+      status = sysparam_init(base_addr, 0);
+      if (status != SYSPARAM_OK) {
+        DEBUG("Failed to init sysparam area\n");
+      }
+    }
+
+  }
 
 #ifndef ACCESS_POINT_MODE
   struct sdk_station_config config =
@@ -278,15 +324,15 @@ void user_init(void) {
   sdk_wifi_set_ip_info(1, &ap_ip);
 
   struct sdk_softap_config ap_config = {
-      .ssid = AP_SSID,
       .ssid_hidden = 0,
       .channel = 3,
-      .ssid_len = strlen(AP_SSID),
       .authmode = AUTH_WPA_WPA2_PSK,
       .password = AP_PSK,
       .max_connection = 3,
       .beacon_interval = 100,
   };
+
+  ap_config.ssid_len = sprintf((char*)ap_config.ssid, AP_SSID "_%X", sdk_system_get_chip_id());
 
   sdk_wifi_softap_set_config(&ap_config);
 
