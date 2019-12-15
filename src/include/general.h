@@ -21,7 +21,10 @@
 #ifndef __GENERAL_H
 #define __GENERAL_H
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
+
 #define __USE_MINGW_ANSI_STDIO 1
 #include <stdint.h>
 #include <stdbool.h>

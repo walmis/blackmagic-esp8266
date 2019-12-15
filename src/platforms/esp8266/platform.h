@@ -30,6 +30,7 @@
 #define NO_USB_PLEASE
 
 void platform_buffer_flush(void);
+void platform_set_baud(uint32_t baud);
 
 #define SET_RUN_STATE(state)
 #define SET_IDLE_STATE(state)
@@ -47,10 +48,9 @@ void platform_buffer_flush(void);
 
 
 #include "timing.h"
+#include "driver/gpio.h"
 
 #define LWIP_OPEN_SRC
-#include <espressif/esp_common.h>
-#include <esp8266.h>
 
 #define TMS_SET_MODE() do { } while (0)
 
@@ -75,21 +75,26 @@ void platform_buffer_flush(void);
 #define SWDIO_PIN TMS_PIN
 #define SWCLK_PIN TCK_PIN
 
-#define gpio_set_val(port, pin, value) do {	\
-		gpio_write(pin, value);		\
-		/*sdk_os_delay_us(2);	*/	\
-	} while (0);
-#define gpio_set(port, pin) gpio_set_val(port, pin, 1)
-#define gpio_clear(port, pin) gpio_set_val(port, pin, 0)
-#define gpio_get(port, pin) gpio_read(pin)
+#define SWCLK_PORT 0
+#define SWDIO_PORT 0
 
-#define SWDIO_MODE_FLOAT() do {			\
-		gpio_enable(SWDIO_PIN, GPIO_INPUT);	\
-	} while (0)
+#define gpio_set_val(port, pin, value) 		gpio_set_level(pin, value);		
 
-#define SWDIO_MODE_DRIVE() do {				\
-		gpio_enable(SWDIO_PIN, GPIO_OUTPUT);	\
-	} while (0)
+#define gpio_enable(pin, mode) gpio_set_direction(pin, mode);
+#define gpio_set(port, pin) gpio_set_level(pin, 1);
+#define gpio_clear(port, pin) gpio_set_level(pin, 0);
+#define gpio_get(port, pin) gpio_get_level(pin)
+
+#define GPIO_INPUT GPIO_MODE_INPUT
+#define GPIO_OUTPUT GPIO_MODE_OUTPUT
+
+#define SWDIO_MODE_FLOAT() 			\
+		gpio_set_direction(SWDIO_PIN, GPIO_MODE_INPUT);	\
+
+
+#define SWDIO_MODE_DRIVE() 				\
+		gpio_set_direction(SWDIO_PIN, GPIO_MODE_OUTPUT);	\
+	
 
 #define PLATFORM_HAS_DEBUG // do we?
 #define BOARD_IDENT "esp8266"
