@@ -29,6 +29,8 @@
 
 #define NO_USB_PLEASE
 
+#include "esp_log.h"
+
 void platform_buffer_flush(void);
 void platform_set_baud(uint32_t baud);
 
@@ -39,12 +41,9 @@ void platform_set_baud(uint32_t baud);
 #define ENABLE_DEBUG
 //#define USE_GPIO2_UART
 
-#ifdef ENABLE_DEBUG
-#define DEBUG(x, ...) do { printf(x, ##__VA_ARGS__); } while (0)
+#define DEBUG(x, ...) do { ESP_LOGD("BMP", x, ##__VA_ARGS__); } while (0)
 //#define DEBUG_GDBPACKET
-#else
-#define DEBUG(x, ...) do { ; } while (0)
-#endif
+
 
 
 #include "timing.h"
